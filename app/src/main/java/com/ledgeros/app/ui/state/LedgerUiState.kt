@@ -1,9 +1,11 @@
 package com.ledgeros.app.ui.state
 
+import com.ledgeros.app.model.BankTransaction
 import com.ledgeros.app.model.Business
 import com.ledgeros.app.model.ComplianceTask
+import com.ledgeros.app.model.GrantedTier
+import com.ledgeros.app.model.ManagedUser
 import com.ledgeros.app.model.Receipt
-import com.ledgeros.app.model.BankTransaction
 
 data class DashboardUiState(
     val business: Business,
@@ -134,6 +136,14 @@ data class AuthUiState(
     /** True after signUp() succeeds when Supabase email confirmation is enabled. */
     val awaitingEmailConfirmation: Boolean = false,
     val confirmationEmail: String = "",
+    /** Non-null when the owner has explicitly granted this user a tier. */
+    val grantedTier: GrantedTier? = null,
+)
+
+data class AdminUiState(
+    val managedUsers: List<ManagedUser> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: String? = null,
 )
 
 data class LedgerUiState(
@@ -143,8 +153,11 @@ data class LedgerUiState(
     val reports: ReportsUiState,
     val receipts: ReceiptUiState,
     val settings: SettingsUiState,
+    val admin: AdminUiState = AdminUiState(),
     val isOnboardingComplete: Boolean = false,
     val isPremium: Boolean = false,
+    /** True only for the owner account (ns@nextwave.au). */
+    val isOwner: Boolean = false,
 )
 
 // Premium tier constants

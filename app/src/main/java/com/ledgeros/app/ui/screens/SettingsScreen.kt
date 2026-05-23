@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Rule
+import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.Info
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.WorkspacePremium
+import androidx.compose.ui.text.style.TextDecoration
+import com.ledgeros.app.model.GrantedTier
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,6 +52,8 @@ fun SettingsScreen(
     uiState: SettingsUiState,
     isPremium: Boolean = false,
     isAuthenticated: Boolean = false,
+    isOwner: Boolean = false,
+    grantedTier: GrantedTier? = null,
     onDeterministicFirstChange: (Boolean) -> Unit,
     onMaskSensitiveIdentifiersChange: (Boolean) -> Unit,
     onFallbackOcrProviderChange: (Boolean) -> Unit,
@@ -56,6 +61,7 @@ fun SettingsScreen(
     onUpgradeClick: () -> Unit = {},
     onRestorePurchasesClick: () -> Unit = {},
     onSignOutClick: () -> Unit = {},
+    onManageAccessClick: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -65,10 +71,12 @@ fun SettingsScreen(
 
         // ── Subscription card ────────────────────────────────────────────
         item {
-            if (isPremium) {
-                ProActiveCard()
-            } else {
-                ProUpgradeSettingsCard(
+            when {
+                isOwner -> OwnerAccessCard(onManageAccessClick = onManageAccessClick)
+                grantedTier != null && grantedTier != GrantedTier.Free ->
+                    GrantedProCard(tier = grantedTier)
+                isPremium -> ProActiveCard()
+                else -> ProUpgradeSettingsCard(
                     onUpgradeClick = onUpgradeClick,
                     onRestoreClick = onRestorePurchasesClick,
                 )
@@ -179,6 +187,122 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+    }
+}
+
+// ── Subscription cards ────────────────────────────────────────────────────
+
+/** Shown only to the owner account — no pricing, admin shortcut. */
+@Composable
+private fun OwnerAccessCard(onManageAccessClick: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.WorkspacePremium,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "LedgerOS Pro",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Text(
+                        "Owner account — full access, all features.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    )
+                }
+                Icon(
+                    Icons.Outlined.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = onManageAccessClick,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    Icons.Outlined.AdminPanelSettings,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Manage user access")
+            }
+        }
+    }
+}
+
+/** Shown to users who have been granted complimentary Pro access by the owner. */
+@Composable
+private fun GrantedProCard(tier: GrantedTier) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.WorkspacePremium,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "LedgerOS Pro",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    "Complimentary ${tier.label} access",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                )
+                if (tier.originalPriceLabel != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            tier.originalPriceLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                textDecoration = TextDecoration.LineThrough,
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                        )
+                        Text(
+                            "  ·  Waived",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+            Icon(
+                Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp),
             )
         }
     }

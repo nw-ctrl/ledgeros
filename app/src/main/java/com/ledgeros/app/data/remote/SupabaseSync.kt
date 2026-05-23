@@ -3,11 +3,13 @@ package com.ledgeros.app.data.remote
 import android.content.Context
 import android.net.Uri
 import com.ledgeros.app.model.BankTransaction
+import com.ledgeros.app.model.BasFrequency
 import com.ledgeros.app.model.Business
 import com.ledgeros.app.model.ComplianceStatus
 import com.ledgeros.app.model.ComplianceTask
 import com.ledgeros.app.model.ComplianceTaskType
-import com.ledgeros.app.model.BasFrequency
+import com.ledgeros.app.model.GrantedTier
+import com.ledgeros.app.model.ManagedUser
 import com.ledgeros.app.model.Receipt
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
@@ -225,6 +227,79 @@ private fun ComplianceTaskDto.toModel() = ComplianceTask(
     dueDate = runCatching { LocalDate.parse(dueDate) }.getOrDefault(LocalDate.now()),
     status = runCatching { ComplianceStatus.valueOf(status) }.getOrDefault(ComplianceStatus.Todo),
 )
+
+// ── Managed user access grants ────────────────────────────────────────────
+
+@Serializable
+private data class ManagedUserDto(
+    val id: String,                            // grantee email (lowercase)
+    @SerialName("granted_by") val grantedBy: String,
+    val tier: String,
+    val note: String,
+)
+
+/**
+ * Checks whether the current user has been granted a tier by the owner.
+ * Called silently after every sign-in for non-owner accounts.
+ * Returns null if no grant exists or Supabase is unreachable.
+ */
+suspend fun fetchGrantedTierForCurrentUser(): GrantedTier? {
+    val client = SupabaseClientProvider.client ?: return null
+    val email = client.auth.currentUserOrNull()?.email ?: return null
+    return try {
+        client.from("managed_users")
+            .select { filter { eq("id", email.lowercase()) } }
+            .decodeSingleOrNull<ManagedUserDto>()
+            ?.let { runCatching { GrantedTier.valueOf(it.tier) }.getOrNull() }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/** Owner: fetch all grants they have created. */
+suspend fun fetchManagedUsers(): List<ManagedUser> {
+    val client = SupabaseClientProvider.client ?: return emptyList()
+    client.auth.currentUserOrNull() ?: return emptyList()
+    return try {
+        client.from("managed_users")
+            .select()
+            .decodeList<ManagedUserDto>()
+            .map {
+                ManagedUser(
+                    email = it.id,
+                    tier = runCatching { GrantedTier.valueOf(it.tier) }.getOrDefault(GrantedTier.Free),
+                    note = it.note,
+                )
+            }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+/** Owner: create or update a grant. */
+suspend fun upsertManagedUser(user: ManagedUser) {
+    val client = SupabaseClientProvider.client ?: return
+    val ownerId = client.auth.currentUserOrNull()?.id ?: return
+    runCatching {
+        client.from("managed_users").upsert(
+            ManagedUserDto(
+                id = user.email.lowercase().trim(),
+                grantedBy = ownerId,
+                tier = user.tier.name,
+                note = user.note,
+            ),
+        )
+    }
+}
+
+/** Owner: revoke a grant by email. */
+suspend fun deleteManagedUser(email: String) {
+    val client = SupabaseClientProvider.client ?: return
+    client.auth.currentUserOrNull() ?: return
+    runCatching {
+        client.from("managed_users").delete { filter { eq("id", email.lowercase()) } }
+    }
+}
 
 // ── Storage ───────────────────────────────────────────────────────────────
 

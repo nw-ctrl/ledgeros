@@ -50,6 +50,7 @@ import com.ledgeros.app.data.remote.SupabaseClientProvider
 import com.ledgeros.app.model.BankTransaction
 import com.ledgeros.app.model.ComplianceStatus
 import com.ledgeros.app.model.Receipt
+import com.ledgeros.app.ui.screens.AdminScreen
 import com.ledgeros.app.ui.screens.AuthScreen
 import com.ledgeros.app.ui.screens.BasPeriodDetailScreen
 import com.ledgeros.app.ui.screens.ComplianceScreen
@@ -82,6 +83,7 @@ private fun detailScreenTitle(route: String?): String = when {
     route.startsWith("reports/period") -> "Quarter detail"
     route.startsWith("reports/transaction") -> "Transaction"
     route.startsWith("receipts/detail") -> "Receipt"
+    route == "admin" -> "Access Management"
     else -> ""
 }
 
@@ -338,6 +340,8 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
                     uiState = uiState.settings,
                     isPremium = uiState.isPremium,
                     isAuthenticated = uiState.auth.isAuthenticated,
+                    isOwner = uiState.isOwner,
+                    grantedTier = uiState.auth.grantedTier,
                     onDeterministicFirstChange = viewModel::setDeterministicFirst,
                     onMaskSensitiveIdentifiersChange = viewModel::setMaskSensitiveIdentifiers,
                     onFallbackOcrProviderChange = viewModel::setFallbackOcrProvider,
@@ -345,6 +349,17 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
                     onUpgradeClick = { activity?.let { viewModel.launchBillingFlow(it) } },
                     onRestorePurchasesClick = viewModel::restorePurchases,
                     onSignOutClick = viewModel::signOut,
+                    onManageAccessClick = { navController.navigate("admin") },
+                )
+            }
+
+            composable("admin") {
+                AdminScreen(
+                    uiState = uiState.admin,
+                    onLoad = viewModel::loadManagedUsers,
+                    onAddUser = viewModel::addManagedUser,
+                    onUpdateTier = viewModel::updateManagedUserTier,
+                    onRemoveUser = viewModel::removeManagedUser,
                 )
             }
         }

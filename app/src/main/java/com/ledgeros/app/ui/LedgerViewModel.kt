@@ -40,12 +40,19 @@ import com.ledgeros.app.data.remote.RetrofitClient
 import com.ledgeros.app.data.remote.SupabaseClientProvider
 import com.ledgeros.app.data.remote.TransactionDto
 import com.ledgeros.app.data.remote.deleteReceiptFromSupabase
+import com.ledgeros.app.data.remote.deleteManagedUser
 import com.ledgeros.app.data.remote.deleteTransactionFromSupabase
+import com.ledgeros.app.data.remote.fetchGrantedTierForCurrentUser
+import com.ledgeros.app.data.remote.fetchManagedUsers
 import com.ledgeros.app.data.remote.pullFromSupabase
 import com.ledgeros.app.data.remote.pushBusinessToSupabase
 import com.ledgeros.app.data.remote.pushReceiptToSupabase
 import com.ledgeros.app.data.remote.pushTransactionToSupabase
 import com.ledgeros.app.data.remote.uploadReceiptImage
+import com.ledgeros.app.data.remote.upsertManagedUser
+import com.ledgeros.app.model.GrantedTier
+import com.ledgeros.app.model.ManagedUser
+import com.ledgeros.app.ui.state.AdminUiState
 import com.ledgeros.app.ui.state.AuthUiState
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -112,7 +119,7 @@ class LedgerViewModel(
             val user = SupabaseClientProvider.client?.auth?.currentUserOrNull()
             if (user != null) {
                 _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true)) }
-                grantOwnerAccessIfApplicable()
+                checkAccessAfterAuth()
             }
         }
 
@@ -647,7 +654,7 @@ class LedgerViewModel(
                     this.password = password
                 }
                 _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true, isLoading = false)) }
-                grantOwnerAccessIfApplicable()
+                checkAccessAfterAuth()
                 syncFromSupabase()
             } catch (e: Exception) {
                 _uiState.update {
@@ -670,7 +677,7 @@ class LedgerViewModel(
                 val user = SupabaseClientProvider.client!!.auth.currentUserOrNull()
                 if (user != null) {
                     _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true, isLoading = false)) }
-                    grantOwnerAccessIfApplicable()
+                    checkAccessAfterAuth()
                     syncFromSupabase()
                 } else {
                     _uiState.update {
@@ -1370,24 +1377,95 @@ class LedgerViewModel(
         val end: LocalDate,
     )
 
+    // ── Admin panel ───────────────────────────────────────────────────────
+
+    /** Load all managed users from Supabase. Only meaningful for the owner account. */
+    fun loadManagedUsers() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(admin = it.admin.copy(isLoading = true, error = null)) }
+            val users = fetchManagedUsers()
+            _uiState.update { it.copy(admin = AdminUiState(managedUsers = users)) }
+        }
+    }
+
+    fun addManagedUser(email: String, tier: GrantedTier, note: String) {
+        viewModelScope.launch {
+            val user = ManagedUser(email = email.lowercase().trim(), tier = tier, note = note)
+            upsertManagedUser(user)
+            val updated = _uiState.value.admin.managedUsers
+                .filterNot { it.email == user.email } + user
+            _uiState.update { it.copy(admin = it.admin.copy(managedUsers = updated)) }
+        }
+    }
+
+    fun updateManagedUserTier(email: String, tier: GrantedTier) {
+        viewModelScope.launch {
+            val existing = _uiState.value.admin.managedUsers
+                .firstOrNull { it.email == email } ?: return@launch
+            val updated = existing.copy(tier = tier)
+            upsertManagedUser(updated)
+            _uiState.update { state ->
+                state.copy(
+                    admin = state.admin.copy(
+                        managedUsers = state.admin.managedUsers.map {
+                            if (it.email == email) updated else it
+                        },
+                    ),
+                )
+            }
+        }
+    }
+
+    fun removeManagedUser(email: String) {
+        viewModelScope.launch {
+            deleteManagedUser(email)
+            _uiState.update { state ->
+                state.copy(
+                    admin = state.admin.copy(
+                        managedUsers = state.admin.managedUsers.filterNot { it.email == email },
+                    ),
+                )
+            }
+        }
+    }
+
+    // ── Access tier detection ─────────────────────────────────────────────
+
     /**
-     * Grants permanent Pro access to any authenticated user whose email is in [OWNER_EMAILS].
-     * Called silently after every successful sign-in, sign-up, and session restore.
-     * Safe to call repeatedly — DataStore writes are idempotent.
+     * Called silently after every sign-in, sign-up, and session restore.
+     *  • Owner email  → isOwner = true, isPremium = true, no tier card shown.
+     *  • Managed user → grantedTier set in AuthUiState, isPremium reflects tier.
+     *  • Everyone else → no change.
      */
-    private suspend fun grantOwnerAccessIfApplicable() {
+    private suspend fun checkAccessAfterAuth() {
         val userEmail = SupabaseClientProvider.client
             ?.auth?.currentUserOrNull()?.email
             ?.lowercase()
             ?: return
+
         if (userEmail in OWNER_EMAILS) {
             settingsDataStore?.setPremium(true)
-            _uiState.update { it.copy(isPremium = true) }
+            _uiState.update { it.copy(isPremium = true, isOwner = true) }
+        } else {
+            val granted = fetchGrantedTierForCurrentUser()
+            if (granted != null) {
+                val isPremium = granted != GrantedTier.Free
+                if (isPremium) settingsDataStore?.setPremium(true)
+                _uiState.update { state ->
+                    state.copy(
+                        isPremium = isPremium,
+                        auth = state.auth.copy(grantedTier = granted),
+                    )
+                }
+            }
         }
     }
 
     companion object {
-        /** Emails that always receive full Pro access — add owner / team accounts here. */
+        /**
+         * Emails that receive owner-level full access.
+         * Add team accounts here — they bypass all paywall checks and see the Admin panel.
+         */
         private val OWNER_EMAILS = setOf("ns@nextwave.au")
 
         val Factory: ViewModelProvider.Factory = viewModelFactory {
