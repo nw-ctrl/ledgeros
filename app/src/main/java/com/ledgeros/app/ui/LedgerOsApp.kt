@@ -30,11 +30,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import android.app.Activity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -87,14 +89,18 @@ private fun detailScreenTitle(route: String?): String = when {
 @Composable
 fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel.Factory)) {
     val uiState by viewModel.uiState.collectAsState()
+    val activity = LocalContext.current as? Activity
 
     // Show auth screen if Supabase is configured and user is not signed in
     if (SupabaseClientProvider.isConfigured && !uiState.auth.isAuthenticated) {
         AuthScreen(
             isLoading = uiState.auth.isLoading,
             error = uiState.auth.error,
+            awaitingEmailConfirmation = uiState.auth.awaitingEmailConfirmation,
+            confirmationEmail = uiState.auth.confirmationEmail,
             onSignIn = viewModel::signIn,
             onSignUp = viewModel::signUp,
+            onBackToSignIn = viewModel::dismissEmailConfirmation,
         )
         return
     }
@@ -239,7 +245,7 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
                     onGstChange = viewModel::updateReceiptDraftGst,
                     onCategoryChange = viewModel::updateReceiptDraftCategory,
                     onSaveReviewClick = viewModel::saveReceiptDraft,
-                    onUpgradeClick = viewModel::launchBillingFlow,
+                    onUpgradeClick = { activity?.let { viewModel.launchBillingFlow(it) } },
                 )
             }
 
@@ -261,7 +267,7 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
                     onPreviousFinancialYearClick = viewModel::selectPreviousFinancialYear,
                     onCurrentFinancialYearClick = viewModel::selectCurrentFinancialYear,
                     onNextFinancialYearClick = viewModel::selectNextFinancialYear,
-                    onUpgradeClick = viewModel::launchBillingFlow,
+                    onUpgradeClick = { activity?.let { viewModel.launchBillingFlow(it) } },
                 )
             }
 
@@ -331,12 +337,14 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
                 SettingsScreen(
                     uiState = uiState.settings,
                     isPremium = uiState.isPremium,
+                    isAuthenticated = uiState.auth.isAuthenticated,
                     onDeterministicFirstChange = viewModel::setDeterministicFirst,
                     onMaskSensitiveIdentifiersChange = viewModel::setMaskSensitiveIdentifiers,
                     onFallbackOcrProviderChange = viewModel::setFallbackOcrProvider,
                     onInnovationModeChange = viewModel::setInnovationMode,
-                    onUpgradeClick = viewModel::launchBillingFlow,
+                    onUpgradeClick = { activity?.let { viewModel.launchBillingFlow(it) } },
                     onRestorePurchasesClick = viewModel::restorePurchases,
+                    onSignOutClick = viewModel::signOut,
                 )
             }
         }

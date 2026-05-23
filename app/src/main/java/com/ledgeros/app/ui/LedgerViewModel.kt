@@ -1,10 +1,13 @@
 package com.ledgeros.app.ui
 
+import android.app.Activity
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewModelScope
+import com.ledgeros.app.billing.BillingManager
 import com.ledgeros.app.data.DemoLedgerRepository
 import com.ledgeros.app.data.LedgerRepository
 import com.ledgeros.app.data.RoomLedgerRepository
@@ -42,6 +45,7 @@ import com.ledgeros.app.data.remote.pullFromSupabase
 import com.ledgeros.app.data.remote.pushBusinessToSupabase
 import com.ledgeros.app.data.remote.pushReceiptToSupabase
 import com.ledgeros.app.data.remote.pushTransactionToSupabase
+import com.ledgeros.app.data.remote.uploadReceiptImage
 import com.ledgeros.app.ui.state.AuthUiState
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
@@ -65,7 +69,11 @@ class LedgerViewModel(
     private val ledgerReviewAssistant: LedgerReviewAssistant = LedgerReviewAssistant(),
     private val localOcrService: LocalReceiptOcrService = DemoLocalReceiptOcrService(),
     private val bankStatementParser: BankStatementParser = AutoBankStatementParser(),
+    private val appContext: Context? = null,
 ) : ViewModel() {
+    /** Set by MainActivity so billing can be triggered from anywhere in the app. */
+    private var billingManager: BillingManager? = null
+
     private val _uiState = MutableStateFlow(createInitialState())
     val uiState: StateFlow<LedgerUiState> = _uiState.asStateFlow()
 
@@ -270,7 +278,14 @@ class LedgerViewModel(
             val receipts = listOf(receipt) + state.dashboard.recentReceipts
             viewModelScope.launch {
                 repository.saveReceipt(receipt)
-                pushReceiptToSupabase(receipt)
+                // Upload image to Supabase Storage when the file URI is a local content URI
+                val storagePath = if (receipt.fileUrl.startsWith("content://") && appContext != null) {
+                    uploadReceiptImage(receipt.id, receipt.fileUrl, appContext)
+                } else null
+                val finalReceipt = if (storagePath != null) {
+                    receipt.copy(fileUrl = storagePath).also { repository.updateReceipt(it) }
+                } else receipt
+                pushReceiptToSupabase(finalReceipt)
             }
 
             state.copy(
@@ -594,20 +609,29 @@ class LedgerViewModel(
     }
 
     /** Called when user taps "Upgrade to Pro" anywhere in the app. */
-    fun launchBillingFlow() {
-        // TODO: wire BillingClient.launchBillingFlow() here once Play Console products are created.
-        // For now, grant premium locally so the UI can be tested.
-        viewModelScope.launch {
-            settingsDataStore?.setPremium(true)
-            _uiState.update { it.copy(isPremium = true) }
+    fun launchBillingFlow(activity: Activity) {
+        if (billingManager != null) {
+            // Real Play Billing — requires Play Console products to be configured
+            billingManager!!.launchPurchaseFlow(activity)
+        } else {
+            // Dev fallback: grant premium locally until Play Console is set up
+            viewModelScope.launch {
+                settingsDataStore?.setPremium(true)
+                _uiState.update { it.copy(isPremium = true) }
+            }
         }
     }
 
     fun restorePurchases() {
-        // TODO: BillingClient.queryPurchasesAsync() → verify with Play Billing server
-        viewModelScope.launch {
-            settingsDataStore?.setPremium(true)
-            _uiState.update { it.copy(isPremium = true) }
+        if (billingManager != null) {
+            // Trigger Play Billing restore — onPremiumGranted() callback handles the grant
+            billingManager!!.checkExistingPurchases()
+        } else {
+            // Dev fallback
+            viewModelScope.launch {
+                settingsDataStore?.setPremium(true)
+                _uiState.update { it.copy(isPremium = true) }
+            }
         }
     }
 
@@ -639,7 +663,23 @@ class LedgerViewModel(
                     this.email = email
                     this.password = password
                 }
-                _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true, isLoading = false)) }
+                // Check whether a session was established immediately (email confirmation
+                // disabled in Supabase) or whether the user needs to confirm their email first.
+                val user = SupabaseClientProvider.client!!.auth.currentUserOrNull()
+                if (user != null) {
+                    _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true, isLoading = false)) }
+                    syncFromSupabase()
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            auth = it.auth.copy(
+                                isLoading = false,
+                                awaitingEmailConfirmation = true,
+                                confirmationEmail = email,
+                            ),
+                        )
+                    }
+                }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(auth = it.auth.copy(isLoading = false, error = e.message ?: "Sign-up failed"))
@@ -648,10 +688,32 @@ class LedgerViewModel(
         }
     }
 
+    /** Dismisses the "check your email" screen and returns to sign-in. */
+    fun dismissEmailConfirmation() {
+        _uiState.update {
+            it.copy(auth = it.auth.copy(awaitingEmailConfirmation = false, confirmationEmail = ""))
+        }
+    }
+
     fun signOut() {
         viewModelScope.launch {
             runCatching { SupabaseClientProvider.client?.auth?.signOut() }
             _uiState.update { it.copy(auth = AuthUiState(isAuthenticated = false)) }
+        }
+    }
+
+    // ── Play Billing ──────────────────────────────────────────────────────
+
+    /** Called by MainActivity once BillingManager is ready (before first recomposition). */
+    fun setBillingManager(manager: BillingManager) {
+        billingManager = manager
+    }
+
+    /** Called by BillingManager after a purchase is successfully acknowledged. */
+    fun onPurchaseAcknowledged() {
+        viewModelScope.launch {
+            settingsDataStore?.setPremium(true)
+            _uiState.update { it.copy(isPremium = true) }
         }
     }
 
@@ -1315,6 +1377,7 @@ class LedgerViewModel(
                         repository = RoomLedgerRepository(ctx),
                         settingsDataStore = SettingsDataStore(ctx),
                         localOcrService = MlKitReceiptOcrService(ctx),
+                        appContext = ctx,
                     )
                 } else {
                     LedgerViewModel(DemoLedgerRepository())

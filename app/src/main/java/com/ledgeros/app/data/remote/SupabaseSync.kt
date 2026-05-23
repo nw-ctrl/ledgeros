@@ -1,5 +1,7 @@
 package com.ledgeros.app.data.remote
 
+import android.content.Context
+import android.net.Uri
 import com.ledgeros.app.model.BankTransaction
 import com.ledgeros.app.model.Business
 import com.ledgeros.app.model.ComplianceStatus
@@ -9,6 +11,7 @@ import com.ledgeros.app.model.BasFrequency
 import com.ledgeros.app.model.Receipt
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.storage.storage
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -222,3 +225,27 @@ private fun ComplianceTaskDto.toModel() = ComplianceTask(
     dueDate = runCatching { LocalDate.parse(dueDate) }.getOrDefault(LocalDate.now()),
     status = runCatching { ComplianceStatus.valueOf(status) }.getOrDefault(ComplianceStatus.Todo),
 )
+
+// ── Storage ───────────────────────────────────────────────────────────────
+
+/**
+ * Uploads a receipt image to Supabase Storage (private "receipts" bucket).
+ *
+ * Returns the storage path on success (e.g. "{userId}/{receiptId}.jpg"), or null
+ * if Supabase is not configured, the user is not authenticated, or the upload fails.
+ * The caller should persist the returned path as [Receipt.fileUrl].
+ */
+suspend fun uploadReceiptImage(receiptId: String, imageUri: String, context: Context): String? {
+    val client = SupabaseClientProvider.client ?: return null
+    val userId = client.auth.currentUserOrNull()?.id ?: return null
+    return try {
+        val bytes = context.contentResolver
+            .openInputStream(Uri.parse(imageUri))
+            ?.use { it.readBytes() } ?: return null
+        val path = "$userId/$receiptId.jpg"
+        client.storage.from("receipts").upload(path, bytes) { upsert = true }
+        path
+    } catch (_: Exception) {
+        null
+    }
+}

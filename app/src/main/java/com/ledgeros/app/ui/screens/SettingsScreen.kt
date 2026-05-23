@@ -10,49 +10,74 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.automirrored.outlined.Rule
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Rule
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.WorkspacePremium
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ledgeros.app.ui.state.PremiumTier
 import com.ledgeros.app.ui.state.SettingsUiState
 
 @Composable
 fun SettingsScreen(
     uiState: SettingsUiState,
+    isPremium: Boolean = false,
+    isAuthenticated: Boolean = false,
     onDeterministicFirstChange: (Boolean) -> Unit,
     onMaskSensitiveIdentifiersChange: (Boolean) -> Unit,
     onFallbackOcrProviderChange: (Boolean) -> Unit,
     onInnovationModeChange: (Boolean) -> Unit,
+    onUpgradeClick: () -> Unit = {},
+    onRestorePurchasesClick: () -> Unit = {},
+    onSignOutClick: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+
+        // ── Subscription card ────────────────────────────────────────────
         item {
-            SettingsGroupCard(
-                title = "Data extraction",
-                icon = Icons.Outlined.Tune,
-            ) {
+            if (isPremium) {
+                ProActiveCard()
+            } else {
+                ProUpgradeSettingsCard(
+                    onUpgradeClick = onUpgradeClick,
+                    onRestoreClick = onRestorePurchasesClick,
+                )
+            }
+        }
+
+        // ── Data extraction ──────────────────────────────────────────────
+        item {
+            SettingsGroupCard(title = "Data extraction", icon = Icons.Outlined.Tune) {
                 SettingsToggleRow(
                     title = "Prefer deterministic parsing",
                     description = "Use regex-based extraction before any adaptive methods.",
@@ -71,11 +96,9 @@ fun SettingsScreen(
             }
         }
 
+        // ── Privacy ──────────────────────────────────────────────────────
         item {
-            SettingsGroupCard(
-                title = "Privacy",
-                icon = Icons.Outlined.Security,
-            ) {
+            SettingsGroupCard(title = "Privacy", icon = Icons.Outlined.Security) {
                 SettingsToggleRow(
                     title = "Mask sensitive identifiers",
                     description = "Redact ABNs and other identifiers in on-screen summaries.",
@@ -86,11 +109,9 @@ fun SettingsScreen(
             }
         }
 
+        // ── Innovation ───────────────────────────────────────────────────
         item {
-            SettingsGroupCard(
-                title = "Innovation",
-                icon = Icons.Outlined.Lightbulb,
-            ) {
+            SettingsGroupCard(title = "Innovation", icon = Icons.Outlined.Lightbulb) {
                 SettingsToggleRow(
                     title = "Innovation mode",
                     description = "Enable experimental adaptive extraction features. Disables deterministic-first when active.",
@@ -101,6 +122,7 @@ fun SettingsScreen(
             }
         }
 
+        // ── Legal disclaimer ─────────────────────────────────────────────
         item {
             Card(
                 colors = CardDefaults.cardColors(
@@ -108,10 +130,7 @@ fun SettingsScreen(
                 ),
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
+                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
                     Icon(
                         Icons.Outlined.Info,
                         contentDescription = null,
@@ -135,6 +154,136 @@ fun SettingsScreen(
                 }
             }
         }
+
+        // ── Account ──────────────────────────────────────────────────────
+        if (isAuthenticated) {
+            item {
+                OutlinedButton(
+                    onClick = onSignOutClick,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.Logout,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sign out")
+                }
+            }
+        }
+
+        item {
+            Text(
+                "LedgerOS v1.0.0",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProActiveCard() {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.WorkspacePremium,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "LedgerOS Pro",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    "You have full access to all features.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                )
+            }
+            Icon(
+                Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProUpgradeSettingsCard(
+    onUpgradeClick: () -> Unit,
+    onRestoreClick: () -> Unit,
+) {
+    ElevatedCard(
+        elevation = CardDefaults.elevatedCardElevation(2.dp),
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.WorkspacePremium,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Upgrade to Pro",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ProFeatureRow("Unlimited receipts")
+                ProFeatureRow("All financial years")
+                ProFeatureRow("BAS due-date notifications")
+                ProFeatureRow("Multi-business (coming soon)")
+            }
+            Spacer(Modifier.height(14.dp))
+            Button(onClick = onUpgradeClick, modifier = Modifier.fillMaxWidth()) {
+                Text("Go Pro · ${PremiumTier.PRO_MONTHLY_PRICE}/month")
+            }
+            Text(
+                "or ${PremiumTier.PRO_YEARLY_PRICE}/year · ${PremiumTier.PRO_YEARLY_SAVING}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            TextButton(onClick = onRestoreClick, modifier = Modifier.fillMaxWidth()) {
+                Text("Restore purchases", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProFeatureRow(text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            shape = MaterialTheme.shapes.extraSmall,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(6.dp),
+        ) {}
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -144,27 +293,11 @@ private fun SettingsGroupCard(
     icon: ImageVector,
     content: @Composable () -> Unit,
 ) {
-    ElevatedCard(
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
-        shape = MaterialTheme.shapes.large,
-    ) {
+    ElevatedCard(elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp), shape = MaterialTheme.shapes.large) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = "  $title",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+            Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                Text("  $title", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
             HorizontalDivider()
             content()
@@ -181,36 +314,14 @@ private fun SettingsToggleRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            modifier = Modifier.size(22.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

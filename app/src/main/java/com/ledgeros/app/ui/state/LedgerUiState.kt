@@ -131,6 +131,9 @@ data class AuthUiState(
     val isAuthenticated: Boolean = false,
     val isLoading: Boolean = false,
     val error: String? = null,
+    /** True after signUp() succeeds when Supabase email confirmation is enabled. */
+    val awaitingEmailConfirmation: Boolean = false,
+    val confirmationEmail: String = "",
 )
 
 data class LedgerUiState(
