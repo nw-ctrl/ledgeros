@@ -112,6 +112,7 @@ class LedgerViewModel(
             val user = SupabaseClientProvider.client?.auth?.currentUserOrNull()
             if (user != null) {
                 _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true)) }
+                grantOwnerAccessIfApplicable()
             }
         }
 
@@ -646,6 +647,7 @@ class LedgerViewModel(
                     this.password = password
                 }
                 _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true, isLoading = false)) }
+                grantOwnerAccessIfApplicable()
                 syncFromSupabase()
             } catch (e: Exception) {
                 _uiState.update {
@@ -668,6 +670,7 @@ class LedgerViewModel(
                 val user = SupabaseClientProvider.client!!.auth.currentUserOrNull()
                 if (user != null) {
                     _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true, isLoading = false)) }
+                    grantOwnerAccessIfApplicable()
                     syncFromSupabase()
                 } else {
                     _uiState.update {
@@ -1367,7 +1370,26 @@ class LedgerViewModel(
         val end: LocalDate,
     )
 
+    /**
+     * Grants permanent Pro access to any authenticated user whose email is in [OWNER_EMAILS].
+     * Called silently after every successful sign-in, sign-up, and session restore.
+     * Safe to call repeatedly — DataStore writes are idempotent.
+     */
+    private suspend fun grantOwnerAccessIfApplicable() {
+        val userEmail = SupabaseClientProvider.client
+            ?.auth?.currentUserOrNull()?.email
+            ?.lowercase()
+            ?: return
+        if (userEmail in OWNER_EMAILS) {
+            settingsDataStore?.setPremium(true)
+            _uiState.update { it.copy(isPremium = true) }
+        }
+    }
+
     companion object {
+        /** Emails that always receive full Pro access — add owner / team accounts here. */
+        private val OWNER_EMAILS = setOf("ns@nextwave.au")
+
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val application = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]
