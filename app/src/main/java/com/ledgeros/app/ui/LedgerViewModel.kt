@@ -34,7 +34,17 @@ import com.ledgeros.app.ui.state.ReportsUiState
 import com.ledgeros.app.ui.state.SettingsUiState
 import com.ledgeros.app.data.remote.AiReviewRequest
 import com.ledgeros.app.data.remote.RetrofitClient
+import com.ledgeros.app.data.remote.SupabaseClientProvider
 import com.ledgeros.app.data.remote.TransactionDto
+import com.ledgeros.app.data.remote.deleteReceiptFromSupabase
+import com.ledgeros.app.data.remote.deleteTransactionFromSupabase
+import com.ledgeros.app.data.remote.pullFromSupabase
+import com.ledgeros.app.data.remote.pushBusinessToSupabase
+import com.ledgeros.app.data.remote.pushReceiptToSupabase
+import com.ledgeros.app.data.remote.pushTransactionToSupabase
+import com.ledgeros.app.ui.state.AuthUiState
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.builtin.Email
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,6 +99,14 @@ class LedgerViewModel(
                 }
             }
         }
+        // Restore Supabase session from storage (silent — no UI shown)
+        viewModelScope.launch {
+            val user = SupabaseClientProvider.client?.auth?.currentUserOrNull()
+            if (user != null) {
+                _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true)) }
+            }
+        }
+
         viewModelScope.launch {
             val snapshot = repository.loadSnapshot()
             _uiState.update { state ->
@@ -250,7 +268,10 @@ class LedgerViewModel(
                 aiConfidence = 0.72,
             )
             val receipts = listOf(receipt) + state.dashboard.recentReceipts
-            viewModelScope.launch { repository.saveReceipt(receipt) }
+            viewModelScope.launch {
+                repository.saveReceipt(receipt)
+                pushReceiptToSupabase(receipt)
+            }
 
             state.copy(
                 dashboard = state.dashboard.copy(
@@ -282,7 +303,10 @@ class LedgerViewModel(
         _uiState.update { state ->
             val imported = bankStatementParser.parse(statementName, content, state.dashboard.business.id)
             val transactions = imported + state.reports.bankTransactions
-            viewModelScope.launch { repository.saveBankTransactions(imported) }
+            viewModelScope.launch {
+                repository.saveBankTransactions(imported)
+                imported.forEach { pushTransactionToSupabase(it) }
+            }
             val status = if (imported.isEmpty()) {
                 "No rows were imported. Check the file has date/amount or debit/credit columns."
             } else {
@@ -425,7 +449,10 @@ class LedgerViewModel(
     fun deleteReceipt(receiptId: String) {
         _uiState.update { state ->
             val receipts = state.dashboard.recentReceipts.filter { it.id != receiptId }
-            viewModelScope.launch { repository.deleteReceipt(receiptId) }
+            viewModelScope.launch {
+                repository.deleteReceipt(receiptId)
+                deleteReceiptFromSupabase(receiptId)
+            }
             state.copy(
                 dashboard = state.dashboard.copy(
                     recentReceipts = receipts,
@@ -446,7 +473,10 @@ class LedgerViewModel(
     fun deleteTransaction(transactionId: String) {
         _uiState.update { state ->
             val transactions = state.reports.bankTransactions.filter { it.id != transactionId }
-            viewModelScope.launch { repository.deleteTransaction(transactionId) }
+            viewModelScope.launch {
+                repository.deleteTransaction(transactionId)
+                deleteTransactionFromSupabase(transactionId)
+            }
             state.copy(
                 reports = buildReportsState(
                     receipts = state.dashboard.recentReceipts,
@@ -526,6 +556,16 @@ class LedgerViewModel(
             )
             settingsDataStore?.setOnboardingComplete(true)
             if (startPremium) settingsDataStore?.setPremium(true)
+            pushBusinessToSupabase(
+                com.ledgeros.app.model.Business(
+                    id = "business-user",
+                    userId = "user-local",
+                    abn = abn.trim(),
+                    businessName = businessName.trim(),
+                    gstRegistered = gstRegistered,
+                    basFrequency = basFrequency,
+                ),
+            )
             _uiState.update { state ->
                 state.copy(
                     isOnboardingComplete = true,
@@ -568,6 +608,86 @@ class LedgerViewModel(
         viewModelScope.launch {
             settingsDataStore?.setPremium(true)
             _uiState.update { it.copy(isPremium = true) }
+        }
+    }
+
+    // ── Supabase auth ─────────────────────────────────────────────────────
+
+    fun signIn(email: String, password: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(auth = it.auth.copy(isLoading = true, error = null)) }
+            try {
+                SupabaseClientProvider.client!!.auth.signInWith(Email) {
+                    this.email = email
+                    this.password = password
+                }
+                _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true, isLoading = false)) }
+                syncFromSupabase()
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(auth = it.auth.copy(isLoading = false, error = e.message ?: "Sign-in failed"))
+                }
+            }
+        }
+    }
+
+    fun signUp(email: String, password: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(auth = it.auth.copy(isLoading = true, error = null)) }
+            try {
+                SupabaseClientProvider.client!!.auth.signUpWith(Email) {
+                    this.email = email
+                    this.password = password
+                }
+                _uiState.update { it.copy(auth = it.auth.copy(isAuthenticated = true, isLoading = false)) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(auth = it.auth.copy(isLoading = false, error = e.message ?: "Sign-up failed"))
+                }
+            }
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            runCatching { SupabaseClientProvider.client?.auth?.signOut() }
+            _uiState.update { it.copy(auth = AuthUiState(isAuthenticated = false)) }
+        }
+    }
+
+    /**
+     * Pull latest data from Supabase and merge into local Room + UI state.
+     * Called silently after sign-in and on app restart when authenticated.
+     */
+    private fun syncFromSupabase() {
+        viewModelScope.launch {
+            val result = pullFromSupabase() ?: return@launch
+            result.receipts.forEach { repository.saveReceipt(it) }
+            result.transactions.forEach { repository.saveBankTransactions(listOf(it)) }
+            result.business?.let { repository.saveUserBusiness(it) }
+
+            val receipts = result.receipts.ifEmpty { _uiState.value.dashboard.recentReceipts }
+            val transactions = result.transactions.ifEmpty { _uiState.value.reports.bankTransactions }
+            _uiState.update { state ->
+                state.copy(
+                    dashboard = state.dashboard.copy(
+                        recentReceipts = receipts,
+                        totalSpend = receipts.sumOf { it.total },
+                        business = result.business ?: state.dashboard.business,
+                    ),
+                    compliance = if (result.complianceTasks.isNotEmpty())
+                        ComplianceUiState(tasks = result.complianceTasks)
+                    else state.compliance,
+                    reports = buildReportsState(
+                        receipts = receipts,
+                        bankTransactions = transactions,
+                        financialYearStart = state.reports.selectedFinancialYearStart,
+                    ).copy(
+                        bankStatementStatus = state.reports.bankStatementStatus,
+                        importedStatementCount = state.reports.importedStatementCount,
+                    ),
+                )
+            }
         }
     }
 

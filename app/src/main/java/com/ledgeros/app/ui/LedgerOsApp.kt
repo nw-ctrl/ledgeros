@@ -44,11 +44,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.ledgeros.app.data.remote.SupabaseClientProvider
 import com.ledgeros.app.model.BankTransaction
 import com.ledgeros.app.model.ComplianceStatus
 import com.ledgeros.app.model.Receipt
+import com.ledgeros.app.ui.screens.AuthScreen
 import com.ledgeros.app.ui.screens.BasPeriodDetailScreen
 import com.ledgeros.app.ui.screens.ComplianceScreen
+import com.ledgeros.app.ui.screens.OnboardingScreen
 import com.ledgeros.app.ui.screens.DashboardScreen
 import com.ledgeros.app.ui.screens.ReceiptDetailScreen
 import com.ledgeros.app.ui.screens.ReceiptScreen
@@ -83,8 +86,30 @@ private fun detailScreenTitle(route: String?): String = when {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel.Factory)) {
-    val navController = rememberNavController()
     val uiState by viewModel.uiState.collectAsState()
+
+    // Show auth screen if Supabase is configured and user is not signed in
+    if (SupabaseClientProvider.isConfigured && !uiState.auth.isAuthenticated) {
+        AuthScreen(
+            isLoading = uiState.auth.isLoading,
+            error = uiState.auth.error,
+            onSignIn = viewModel::signIn,
+            onSignUp = viewModel::signUp,
+        )
+        return
+    }
+
+    // Show onboarding until the user has completed business setup
+    if (!uiState.isOnboardingComplete) {
+        OnboardingScreen(
+            onComplete = { name, abn, gst, freq, pro ->
+                viewModel.completeOnboarding(name, abn, gst, freq, pro)
+            },
+        )
+        return
+    }
+
+    val navController = rememberNavController()
 
     val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
     val currentRootRoute = currentRoute?.substringBefore("/")
@@ -202,6 +227,8 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
             composable("receipts") {
                 ReceiptScreen(
                     uiState = uiState.receipts,
+                    savedReceiptCount = uiState.dashboard.recentReceipts.size,
+                    isPremium = uiState.isPremium,
                     onSampleTextChange = viewModel::updateReceiptSample,
                     onUploadClick = viewModel::markReceiptUploadReady,
                     onImageSelected = viewModel::selectReceiptImage,
@@ -212,6 +239,7 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
                     onGstChange = viewModel::updateReceiptDraftGst,
                     onCategoryChange = viewModel::updateReceiptDraftCategory,
                     onSaveReviewClick = viewModel::saveReceiptDraft,
+                    onUpgradeClick = viewModel::launchBillingFlow,
                 )
             }
 
@@ -225,6 +253,7 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
             composable("reports") {
                 ReportsScreen(
                     uiState = uiState.reports,
+                    isPremium = uiState.isPremium,
                     onBankStatementImported = viewModel::importBankStatement,
                     onManualAdjustmentSaved = viewModel::addManualAdjustment,
                     onBasPeriodClick = { navController.navigate("reports/period/$it") },
@@ -232,6 +261,7 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
                     onPreviousFinancialYearClick = viewModel::selectPreviousFinancialYear,
                     onCurrentFinancialYearClick = viewModel::selectCurrentFinancialYear,
                     onNextFinancialYearClick = viewModel::selectNextFinancialYear,
+                    onUpgradeClick = viewModel::launchBillingFlow,
                 )
             }
 
@@ -300,10 +330,13 @@ fun LedgerOsApp(viewModel: LedgerViewModel = viewModel(factory = LedgerViewModel
             composable("settings") {
                 SettingsScreen(
                     uiState = uiState.settings,
+                    isPremium = uiState.isPremium,
                     onDeterministicFirstChange = viewModel::setDeterministicFirst,
                     onMaskSensitiveIdentifiersChange = viewModel::setMaskSensitiveIdentifiers,
                     onFallbackOcrProviderChange = viewModel::setFallbackOcrProvider,
                     onInnovationModeChange = viewModel::setInnovationMode,
+                    onUpgradeClick = viewModel::launchBillingFlow,
+                    onRestorePurchasesClick = viewModel::restorePurchases,
                 )
             }
         }

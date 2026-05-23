@@ -127,10 +127,29 @@ data class SettingsUiState(
     val innovationMode: Boolean,
 )
 
+data class AuthUiState(
+    val isAuthenticated: Boolean = false,
+    val isLoading: Boolean = false,
+    val error: String? = null,
+)
+
 data class LedgerUiState(
+    val auth: AuthUiState = AuthUiState(),
     val dashboard: DashboardUiState,
     val compliance: ComplianceUiState,
     val reports: ReportsUiState,
     val receipts: ReceiptUiState,
     val settings: SettingsUiState,
+    val isOnboardingComplete: Boolean = false,
+    val isPremium: Boolean = false,
 )
+
+// Premium tier constants
+object PremiumTier {
+    const val FREE_RECEIPT_LIMIT = 10
+    const val PRO_MONTHLY_SKU = "ledgeros_pro_monthly"
+    const val PRO_YEARLY_SKU = "ledgeros_pro_yearly"
+    const val PRO_MONTHLY_PRICE = "A$7.99"
+    const val PRO_YEARLY_PRICE = "A$59.99"
+    const val PRO_YEARLY_SAVING = "Save 37%"
+}
