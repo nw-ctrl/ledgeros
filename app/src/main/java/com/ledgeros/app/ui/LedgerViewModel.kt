@@ -32,6 +32,9 @@ import com.ledgeros.app.ui.state.ReceiptMatchSuggestionUiState
 import com.ledgeros.app.ui.state.ReceiptUiState
 import com.ledgeros.app.ui.state.ReportsUiState
 import com.ledgeros.app.ui.state.SettingsUiState
+import com.ledgeros.app.data.remote.AiReviewRequest
+import com.ledgeros.app.data.remote.RetrofitClient
+import com.ledgeros.app.data.remote.TransactionDto
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,6 +61,7 @@ class LedgerViewModel(
 
     init {
         settingsDataStore?.let { ds ->
+            // Observe settings toggles
             viewModelScope.launch {
                 ds.settingsFlow.collect { saved ->
                     _uiState.update { state ->
@@ -70,6 +74,18 @@ class LedgerViewModel(
                             ),
                         )
                     }
+                }
+            }
+            // Observe onboarding completion
+            viewModelScope.launch {
+                ds.onboardingCompleteFlow.collect { complete ->
+                    _uiState.update { it.copy(isOnboardingComplete = complete) }
+                }
+            }
+            // Observe premium status
+            viewModelScope.launch {
+                ds.isPremiumFlow.collect { premium ->
+                    _uiState.update { it.copy(isPremium = premium) }
                 }
             }
         }
@@ -91,6 +107,8 @@ class LedgerViewModel(
                     ),
                 )
             }
+            // Upgrade local review brief with server-side version if backend is reachable.
+            syncReviewBriefWithBackend()
         }
     }
 
@@ -282,6 +300,8 @@ class LedgerViewModel(
                     ),
             )
         }
+        // Re-run backend review now that new transactions are in state.
+        syncReviewBriefWithBackend()
     }
 
     fun addManualAdjustment(
@@ -484,6 +504,133 @@ class LedgerViewModel(
             )
         }
     }
+
+    fun completeOnboarding(
+        businessName: String,
+        abn: String,
+        gstRegistered: Boolean,
+        basFrequency: com.ledgeros.app.model.BasFrequency,
+        startPremium: Boolean,
+    ) {
+        viewModelScope.launch {
+            // Persist the user's own business — replaces seeded demo data
+            repository.saveUserBusiness(
+                com.ledgeros.app.model.Business(
+                    id = "business-user",
+                    userId = "user-local",
+                    abn = abn.trim(),
+                    businessName = businessName.trim(),
+                    gstRegistered = gstRegistered,
+                    basFrequency = basFrequency,
+                ),
+            )
+            settingsDataStore?.setOnboardingComplete(true)
+            if (startPremium) settingsDataStore?.setPremium(true)
+            _uiState.update { state ->
+                state.copy(
+                    isOnboardingComplete = true,
+                    isPremium = startPremium,
+                )
+            }
+            // Reload snapshot with new business data
+            val snapshot = repository.loadSnapshot()
+            _uiState.update { state ->
+                state.copy(
+                    dashboard = state.dashboard.copy(
+                        business = snapshot.activeBusiness,
+                        recentReceipts = snapshot.recentReceipts,
+                        complianceTasks = snapshot.complianceTasks,
+                        totalSpend = snapshot.recentReceipts.sumOf { it.total },
+                    ),
+                    compliance = ComplianceUiState(tasks = snapshot.complianceTasks),
+                    reports = buildReportsState(
+                        receipts = snapshot.recentReceipts,
+                        bankTransactions = snapshot.bankTransactions,
+                        financialYearStart = state.reports.selectedFinancialYearStart,
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Called when user taps "Upgrade to Pro" anywhere in the app. */
+    fun launchBillingFlow() {
+        // TODO: wire BillingClient.launchBillingFlow() here once Play Console products are created.
+        // For now, grant premium locally so the UI can be tested.
+        viewModelScope.launch {
+            settingsDataStore?.setPremium(true)
+            _uiState.update { it.copy(isPremium = true) }
+        }
+    }
+
+    fun restorePurchases() {
+        // TODO: BillingClient.queryPurchasesAsync() → verify with Play Billing server
+        viewModelScope.launch {
+            settingsDataStore?.setPremium(true)
+            _uiState.update { it.copy(isPremium = true) }
+        }
+    }
+
+    /**
+     * Fire-and-forget backend sync for the AI review brief.
+     *
+     * Strategy: the local [LedgerReviewAssistant] always runs first (instant,
+     * no network needed) so the UI is never blank. This function then calls the
+     * FastAPI backend in the background and silently replaces the local result
+     * with the server response if it arrives successfully.
+     *
+     * Any network error is swallowed — the local result stays on screen.
+     */
+    fun syncReviewBriefWithBackend() {
+        viewModelScope.launch {
+            try {
+                val state = _uiState.value
+                val transactions = state.reports.bankTransactions
+                if (transactions.isEmpty()) return@launch
+
+                val request = AiReviewRequest(
+                    businessId = state.dashboard.business.id,
+                    financialYear = state.reports.financialYearLabel
+                        .removePrefix("FY ")
+                        .replace("-", "-20")
+                        .let { raw ->
+                            // "2025-2026" → "2025-26"
+                            val parts = raw.split("-")
+                            if (parts.size == 2) "${parts[0]}-${parts[1].takeLast(2)}" else raw
+                        },
+                    transactions = transactions.map { it.toApiDto() },
+                    unmatchedExpenseCount = state.reports.unmatchedExpenseCount,
+                    duplicateReceiptCount = state.reports.duplicateReceiptCandidates
+                        .sumOf { it.count - 1 },
+                    suggestedMatchCount = state.reports.receiptMatchSuggestions.size,
+                )
+
+                val response = RetrofitClient.api.aiReviewBrief(request)
+
+                _uiState.update { s ->
+                    s.copy(
+                        reports = s.reports.copy(
+                            aiRiskScore = response.riskScore,
+                            aiReviewBrief = response.summary,
+                            aiReviewActions = response.actions,
+                        ),
+                    )
+                }
+            } catch (_: Exception) {
+                // Network unavailable or backend not running — local result stays.
+            }
+        }
+    }
+
+    /** Maps a domain [BankTransaction] to the DTO shape expected by the FastAPI backend. */
+    private fun BankTransaction.toApiDto() = TransactionDto(
+        transactionDate = transactionDate.toString(),
+        description = description,
+        amount = amount,
+        category = category,
+        gstEstimate = gstEstimate,
+        source = if (sourceFile == "Manual adjustment") "manual" else "bank",
+    )
 
     private fun updateSettings(transform: (SettingsUiState) -> SettingsUiState) {
         _uiState.update { state ->
