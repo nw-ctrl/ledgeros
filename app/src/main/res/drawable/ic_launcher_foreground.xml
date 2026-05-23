@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    LedgerOS adaptive icon foreground.
+
+    Design language: NextWave brand
+      • Dark charcoal "L" letterform (bold geometric, Material-3 proportions)
+      • Neon-green diagonal glow (#00E676) cuts across the letter at ≈38°,
+        identical to the diagonal-light motif in the NextWave N logo
+      • Layered glow (outer halo → mid glow → inner glow → bright core)
+        simulates the lit-from-within laser/refraction effect
+      • Subtle bevel highlights on top/left face give 3-D depth
+
+    Canvas: 108 × 108 dp  (Android adaptive icon standard)
+    Safe zone (always visible): 72 × 72 dp centred at (54, 54) → (18..90, 18..90)
+    Artwork sits within (26..86, 20..88) to clear all launcher squircle crops.
+
+    Diagonal glow geometry
+      Start (bottom-left)  : (16, 84)
+      End   (top-right)    : (92, 24)
+      Direction unit       : (0.785, -0.620)
+      Perpendicular unit   : (0.620,  0.785)
+      Layer widths (total) : 26 dp outer halo / 16 dp mid / 10 dp inner / 6 dp core / 2 dp bright
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- ── Drop shadow (offsets L by +3,+3, very dark) ── -->
+    <path
+        android:fillColor="#55000000"
+        android:pathData="M31,25 L51,25 L51,71 L87,71 L87,89 L31,89 Z" />
+
+    <!-- ── L body — dark charcoal #252930 ── -->
+    <path
+        android:fillColor="#252930"
+        android:pathData="M28,22 L48,22 L48,68 L84,68 L84,86 L28,86 Z" />
+
+    <!-- ── Bevel highlight — top face (light from upper-left) ── -->
+    <path
+        android:fillColor="#28FFFFFF"
+        android:pathData="M28,22 L48,22 L48,25 L28,25 Z" />
+
+    <!-- ── Bevel highlight — left face ── -->
+    <path
+        android:fillColor="#1EFFFFFF"
+        android:pathData="M28,22 L31,22 L31,86 L28,86 Z" />
+
+    <!-- ── Depth shadow — right edge of crossbar ── -->
+    <path
+        android:fillColor="#3C000000"
+        android:pathData="M81,68 L84,68 L84,86 L81,86 Z" />
+
+    <!-- ── Depth shadow — bottom face of crossbar ── -->
+    <path
+        android:fillColor="#3C000000"
+        android:pathData="M28,83 L84,83 L84,86 L28,86 Z" />
+
+    <!-- ══════════════════════════════════════════════════════
+         GREEN DIAGONAL GLOW
+         All alpha values are AARRGGBB prefix on #00E676
+         ══════════════════════════════════════════════════════ -->
+
+    <!-- Outer halo — bleeds slightly outside the L (26 dp total width) -->
+    <path
+        android:fillColor="#1200E676"
+        android:pathData="M24,94 L8,74 L84,14 L100,34 Z" />
+
+    <!-- Mid outer glow — still partly outside L (20 dp total) -->
+    <path
+        android:fillColor="#1E00E676"
+        android:pathData="M21,90 L11,78 L87,18 L97,30 Z" />
+
+    <!-- ── Glow layers clipped strictly to the L shape ── -->
+    <group>
+        <clip-path android:pathData="M28,22 L48,22 L48,68 L84,68 L84,86 L28,86 Z" />
+
+        <!-- Mid glow (16 dp total) -->
+        <path
+            android:fillColor="#3500E676"
+            android:pathData="M21,90 L11,78 L87,18 L97,30 Z" />
+
+        <!-- Inner glow (10 dp total) -->
+        <path
+            android:fillColor="#7000E676"
+            android:pathData="M19,88 L13,80 L89,20 L95,28 Z" />
+
+        <!-- Core glow (6 dp total) -->
+        <path
+            android:fillColor="#C000E676"
+            android:pathData="M18,86 L14,82 L90,22 L94,26 Z" />
+
+        <!-- Bright centre line (2 dp total) — near-white green -->
+        <path
+            android:fillColor="#FF80FFB8"
+            android:pathData="M17,85 L15,83 L91,23 L93,25 Z" />
+    </group>
+
+</vector>

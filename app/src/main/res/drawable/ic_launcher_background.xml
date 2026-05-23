@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive icon background — deep charcoal matching NextWave brand palette.
+    Hex #1A1B1E: near-black with a subtle blue-grey warmth.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#1A1B1E" />
+</shape>
