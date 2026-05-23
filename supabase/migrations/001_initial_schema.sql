@@ -1,10 +1,10 @@
 -- ============================================================
--- LedgerOS — Supabase initial schema
+-- LedgerOS — Supabase initial schema  (idempotent — safe to re-run)
 -- Run this in: Supabase dashboard → SQL Editor → Run
 -- ============================================================
 
 -- ── Businesses ────────────────────────────────────────────────
-create table public.businesses (
+create table if not exists public.businesses (
     id                text primary key,
     user_id           uuid references auth.users not null,
     abn               text not null default '',
@@ -15,11 +15,12 @@ create table public.businesses (
 );
 
 alter table public.businesses enable row level security;
+drop policy if exists "owner only" on public.businesses;
 create policy "owner only" on public.businesses
     for all using (auth.uid() = user_id);
 
 -- ── Receipts ──────────────────────────────────────────────────
-create table public.receipts (
+create table if not exists public.receipts (
     id                text primary key,
     business_id       text references public.businesses(id) on delete cascade,
     user_id           uuid references auth.users not null,
@@ -36,11 +37,12 @@ create table public.receipts (
 );
 
 alter table public.receipts enable row level security;
+drop policy if exists "owner only" on public.receipts;
 create policy "owner only" on public.receipts
     for all using (auth.uid() = user_id);
 
 -- ── Bank transactions ─────────────────────────────────────────
-create table public.bank_transactions (
+create table if not exists public.bank_transactions (
     id                  text primary key,
     business_id         text references public.businesses(id) on delete cascade,
     user_id             uuid references auth.users not null,
@@ -56,11 +58,12 @@ create table public.bank_transactions (
 );
 
 alter table public.bank_transactions enable row level security;
+drop policy if exists "owner only" on public.bank_transactions;
 create policy "owner only" on public.bank_transactions
     for all using (auth.uid() = user_id);
 
 -- ── Compliance tasks ──────────────────────────────────────────
-create table public.compliance_tasks (
+create table if not exists public.compliance_tasks (
     id            text primary key,
     business_id   text references public.businesses(id) on delete cascade,
     user_id       uuid references auth.users not null,
@@ -72,28 +75,30 @@ create table public.compliance_tasks (
 );
 
 alter table public.compliance_tasks enable row level security;
+drop policy if exists "owner only" on public.compliance_tasks;
 create policy "owner only" on public.compliance_tasks
     for all using (auth.uid() = user_id);
 
 -- ── Receipt image storage ─────────────────────────────────────
--- Run separately if the bucket doesn't exist yet.
 insert into storage.buckets (id, name, public)
     values ('receipts', 'receipts', false)
     on conflict do nothing;
 
--- Files are stored under {userId}/{receiptId}.jpg
+drop policy if exists "upload own receipts" on storage.objects;
 create policy "upload own receipts" on storage.objects
     for insert with check (
         bucket_id = 'receipts'
         and auth.uid()::text = (storage.foldername(name))[1]
     );
 
+drop policy if exists "view own receipts" on storage.objects;
 create policy "view own receipts" on storage.objects
     for select using (
         bucket_id = 'receipts'
         and auth.uid()::text = (storage.foldername(name))[1]
     );
 
+drop policy if exists "delete own receipts" on storage.objects;
 create policy "delete own receipts" on storage.objects
     for delete using (
         bucket_id = 'receipts'
